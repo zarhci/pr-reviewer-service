@@ -57,7 +57,12 @@ environment:
 - Все эндпоинты запускаются по стандартному маршруту `localhost:8080`
 
 - Проверка работы сервера
-  GET `http://localhost:8080/health - {"status":"ok"}`
+  GET `http://localhost:8080/health`
+  ```json
+  {"status":"ok"}`
+  ```
+
+---
 
 - Создание команды POST `http://localhost:8080/team/add`
 
@@ -71,6 +76,8 @@ environment:
   	]
   }
   ```
+
+  ***
 
 - Информация о команде
   GET `http://localhost:8080/team/get?team_name=backend`
