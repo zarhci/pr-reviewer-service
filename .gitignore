@@ -1,0 +1,11 @@
+/pr-reviewer-service
+/vendor/
+.DS_Store
+.vscode/
+.idea/
+
+*.exe
+*.out
+
+*.log
+
