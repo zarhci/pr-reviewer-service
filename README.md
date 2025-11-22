@@ -1,37 +1,44 @@
-**О Проекте**
+## О Проекте.
+
 Сервис для автоматического назначения ревьюверов на Pull Request'ы внутри команд разработки.
 
-**Функционал**
-Назначение ревьюверов из команды автора pr.
+## Функционал.
 
-Запрет изменений после merge pr.
+- Назначение ревьюверов из команды автора pr.
 
-Назначение только активных пользователей (isActive = true).
+-Запрет изменений после merge pr.
 
-Ограничение до 2 ревьюверов.
+- Назначение только активных пользователей (isActive = true).
 
-Идемпотентность операции merge.
+- Ограничение до 2 ревьюверов.
 
-_стек_:
-Go, Docker/Docker Compose, in-memory,порт 8080
+- Идемпотентность операции merge.
 
-**Запуск проекта**
+---
+
+## _стек_:
+
+- Go, Docker/Docker Compose, in-memory,порт 8080
+
+---
+
+## Запуск проекта.
 
 Сервис запускается через Docker Compose:
 
-Запуск
+**Запуск**
 `docker-compose up`
 
-Локальный запуск для разработки
+**Локальный запуск для разработки**
 `make run`
 
-Сборка проекта
+**Сборка проекта**
 `make build`
 
-Очистка артефактов
+**Очистка артефактов**
 `make clean`
 
-Запуск docker-compose
+**Запуск docker-compose**
 `docker-up`
 
 Конфигурация реализована через переменные окружения в docker-compose.yml:
@@ -45,8 +52,9 @@ environment:
 
 ---
 
-_Endpoints_
-Все эндпоинты запускаются по стандартному маршруту `localhost:8080`
+## _Endpoints_.
+
+- Все эндпоинты запускаются по стандартному маршруту `localhost:8080`
 
 - Проверка работы сервера
   GET `http://localhost:8080/health - {"status":"ok"}`
@@ -67,6 +75,8 @@ _Endpoints_
 - Информация о команде
   GET `http://localhost:8080/team/get?team_name=backend`
 
+---
+
 - Акт/деакт юзера
   POST `http://localhost:8080/users/setIsActive`
 
@@ -76,6 +86,8 @@ _Endpoints_
   	"is_active": true
   }
   ```
+
+  ***
 
 - Создание pull request
   POST `http://localhost:8080/pullRequest/create`
@@ -88,6 +100,8 @@ _Endpoints_
   }
   ```
 
+  ***
+
 - Перераспределение ревьювера
   POST `http://localhost:8080/pullRequest/reassign`
 
@@ -99,6 +113,8 @@ _Endpoints_
 
   ```
 
+  ***
+
 - Мёрж pr
   POST `http://localhost:8080/pullRequest/merge`
 
@@ -108,8 +124,12 @@ _Endpoints_
   }
   ```
 
+  ***
+
 - история ревью юзера
   GET `http://localhost:8080/users/getReview?user_id=2`
+
+  ***
 
 - Лимит 2 ревьюверов
   POST `http://localhost:8080/pullRequest/create`
@@ -121,6 +141,8 @@ _Endpoints_
 	"author_id": "u1"
 }
 ```
+
+---
 
 - Запрет изменений после merge
   POST `http://localhost:8080/pullRequest/merge`
@@ -139,6 +161,8 @@ POST `http://localhost:8080/pullRequest/reassign`
 	"old_user_id": "u3"
 }
 ```
+
+---
 
 - Идемпотентность merge
   POST `http://localhost:8080/pullRequest/merge`
@@ -161,6 +185,8 @@ POST `http://localhost:8080/pullRequest/reassign`
 }
 ```
 
+---
+
 - Структурированные ошибки
   GET `http://localhost:8080/team/get?team_name=nonexistent-team`
 
@@ -169,6 +195,8 @@ POST `http://localhost:8080/pullRequest/reassign`
 ```
 
 HTTP Status:404
+
+---
 
 _Дополнительно_
 
