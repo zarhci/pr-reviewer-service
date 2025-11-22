@@ -1,0 +1,8 @@
+version: '3.9'
+
+services:
+  pr-reviewer:
+    build: .
+    container_name: pr-reviewer
+    ports:
+      - '8080:8080'
