@@ -44,6 +44,10 @@ func (h *UserHandler) SetActive(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) GetReviews(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	prs := h.prService.GetPRsForReviewer(userID)
+	if userID == "" {
+		http.Error(w, "missing user_id", http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
