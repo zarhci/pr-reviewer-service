@@ -3,9 +3,13 @@
 .DS_Store
 .vscode/
 .idea/
-
 *.exe
 *.out
-
 *.log
+app
+.env
+docker-data
+
+
+
 

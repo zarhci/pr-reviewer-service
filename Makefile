@@ -1,11 +1,23 @@
-build:
-	go build -o app ./cmd
+up-db:
+	docker-compose up -d postgres
 
-run:
-	go run cmd/main.go
+migrate-up:
+	docker-compose run --rm migrate
 
-clean:
-	rm -f app
+goose-up:
+	docker-compose run --rm goose
 
-docker-up:
-	docker-compose up --build
+up-app:
+	docker-compose up -d pr-reviewer
+
+down:
+	docker-compose down -v
+
+up:
+	docker-compose down -v
+	docker-compose up -d postgres
+	docker-compose run --rm migrate
+	docker-compose up -d pr-reviewer
+
+down:
+	docker-compose down -v

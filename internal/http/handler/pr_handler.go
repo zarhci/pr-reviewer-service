@@ -1,105 +1,213 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/labstack/echo"
+
 	"pr-reviewer-service/internal/models"
 	"pr-reviewer-service/internal/service"
 )
 
 type PRHandler struct {
-	service *service.PRService
+	prService *service.PRService
 }
 
-func NewPRHandler(s *service.PRService) *PRHandler {
-	return &PRHandler{service: s}
+func NewPRHandler(prService *service.PRService) *PRHandler {
+	return &PRHandler{
+		prService: prService,
+	}
 }
 
-func (h *PRHandler) CreatePR(w http.ResponseWriter, r *http.Request) {
-	var pr models.PullRequest
-	if err := json.NewDecoder(r.Body).Decode(&pr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+/*
+POST /pullRequest/create
+
+	{
+	  "pull_request_id": "pr1",
+	  "pull_request_name": "Add feature",
+	  "author_id": "u1"
+	}
+*/
+type createPRRequest struct {
+	PullRequestID   string `json:"pull_request_id"`
+	PullRequestName string `json:"pull_request_name"`
+	AuthorID        string `json:"author_id"`
+}
+
+func (h *PRHandler) CreatePR(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	var req createPRRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "INVALID_REQUEST",
+				"message": "invalid request body",
+			},
+		})
 	}
 
-	if err := h.service.CreatePR(&pr); err != nil {
-		if err.Error() == "PR_EXISTS" {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+	if req.PullRequestID == "" || req.AuthorID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "VALIDATION_ERROR",
+				"message": "pull_request_id and author_id are required",
+			},
+		})
+	}
+
+	pr := &models.PullRequest{
+		PullRequestID:   req.PullRequestID,
+		PullRequestName: req.PullRequestName,
+		AuthorID:        req.AuthorID,
+	}
+
+	if err := h.prService.CreatePR(ctx, pr); err != nil {
+		switch err {
+		case service.ErrPRExists:
+			return c.JSON(http.StatusConflict, map[string]interface{}{
 				"error": map[string]string{
 					"code":    "PR_EXISTS",
-					"message": "PR id already exists",
+					"message": "pull request already exists",
 				},
 			})
-			return
+		case service.ErrNoCandidate:
+			return c.JSON(http.StatusUnprocessableEntity, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "NO_CANDIDATE",
+					"message": "no active reviewers available",
+				},
+			})
+		default:
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "INTERNAL_ERROR",
+					"message": "could not create pull request",
+				},
+			})
 		}
-		w.WriteHeader(http.StatusNotFound)
-		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"pr": pr})
+	return c.JSON(http.StatusCreated, map[string]string{
+		"status": "ok",
+	})
 }
 
-func (h *PRHandler) MergePR(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PullRequestID string `json:"pull_request_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+/*
+POST /pullRequest/merge
 
-	pr, err := h.service.MergePR(req.PullRequestID)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
+	{
+	  "pull_request_id": "pr1"
 	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{"pr": pr})
+*/
+type mergePRRequest struct {
+	PullRequestID string `json:"pull_request_id"`
 }
 
-func (h *PRHandler) ReassignReviewer(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PullRequestID string `json:"pull_request_id"`
-		OldUserID     string `json:"old_user_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+func (h *PRHandler) MergePR(c echo.Context) error {
+	ctx := c.Request().Context()
 
-	pr, newUserID, err := h.service.ReassignReviewer(req.PullRequestID, req.OldUserID)
-	if err != nil {
-		code := "NOT_FOUND"
-		msg := "pr or user not found"
-
-		if err.Error() == "PR_MERGED" {
-			code = "PR_MERGED"
-			msg = "cannot reassign on merged PR"
-			w.WriteHeader(http.StatusConflict)
-		} else if err.Error() == "NOT_ASSIGNED" {
-			code = "NOT_ASSIGNED"
-			msg = "reviewer is not assigned to this PR"
-			w.WriteHeader(http.StatusConflict)
-		} else if err.Error() == "NO_CANDIDATE" {
-			code = "NO_CANDIDATE"
-			msg = "no active replacement candidate in team"
-			w.WriteHeader(http.StatusConflict)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-		}
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": map[string]string{"code": code, "message": msg},
+	var req mergePRRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "INVALID_REQUEST",
+				"message": "invalid request body",
+			},
 		})
-		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"pr":          pr,
-		"replaced_by": newUserID,
+	pr, err := h.prService.MergePR(ctx, req.PullRequestID)
+	if err != nil {
+		switch err {
+		case service.ErrPRNotFound:
+			return c.JSON(http.StatusNotFound, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "PR_NOT_FOUND",
+					"message": "pull request not found",
+				},
+			})
+		case service.ErrPRMerged:
+			return c.JSON(http.StatusConflict, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "PR_ALREADY_MERGED",
+					"message": "pull request already merged",
+				},
+			})
+		default:
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "INTERNAL_ERROR",
+					"message": "could not merge pull request",
+				},
+			})
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"pull_request": pr,
+	})
+}
+
+/*
+POST /pullRequest/reassign
+
+	{
+	  "pull_request_id": "pr1",
+	  "old_user_id": "u2"
+	}
+*/
+type reassignReviewerRequest struct {
+	PullRequestID string `json:"pull_request_id"`
+	OldUserID     string `json:"old_user_id"`
+}
+
+func (h *PRHandler) ReassignReviewer(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	var req reassignReviewerRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "INVALID_REQUEST",
+				"message": "invalid request body",
+			},
+		})
+	}
+
+	pr, newUserID, err := h.prService.ReassignReviewer(
+		ctx,
+		req.PullRequestID,
+		req.OldUserID,
+	)
+	if err != nil {
+		switch err {
+		case service.ErrReviewerNotAssigned:
+			return c.JSON(http.StatusBadRequest, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "REVIEWER_NOT_ASSIGNED",
+					"message": "reviewer not assigned to PR",
+				},
+			})
+		case service.ErrNoCandidate:
+			return c.JSON(http.StatusUnprocessableEntity, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "NO_CANDIDATE",
+					"message": "no replacement reviewer available",
+				},
+			})
+		default:
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "INTERNAL_ERROR",
+					"message": "could not reassign reviewer",
+				},
+			})
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"pull_request": pr,
+		"new_user_id":  newUserID,
 	})
 }

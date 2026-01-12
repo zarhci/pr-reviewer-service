@@ -2,40 +2,68 @@ package main
 
 import (
 	"log"
-	"net/http"
+	"os"
+
+	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 
 	"pr-reviewer-service/internal/http/handler"
-	"pr-reviewer-service/internal/repository/memory"
+	r "pr-reviewer-service/internal/repository"
 	"pr-reviewer-service/internal/service"
 )
 
 func main() {
-	storage := memory.NewStorage()
-	userRepo := memory.NewUserRepository(storage)
-	teamRepo := memory.NewTeamRepository(storage)
-	prRepo := memory.NewPRRepository(storage)
+	// --- Database ---
+	database, err := r.New(os.Getenv("POSTGRES_DSN"))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	teamService := service.NewTeamService(teamRepo, userRepo)
+	// --- Repositories ---
+	userRepo := r.NewUserRepository(database.DB)
+	teamRepo := r.NewTeamRepository(database.DB)
+	prRepo := r.NewPullRequestRepository(database.DB)
+
+	// --- Services ---
 	userService := service.NewUserService(userRepo)
+	teamService := service.NewTeamService(teamRepo, userRepo)
 	prService := service.NewPRService(prRepo, userRepo, teamRepo)
 
+	// --- Handlers ---
 	teamHandler := handler.NewTeamHandler(teamService)
-	userHandler := handler.NewUserHandler(userService, prService)
+	userHandler := handler.NewUserHandler(userService)
 	prHandler := handler.NewPRHandler(prService)
 
-	mux := http.NewServeMux()
+	// --- Echo ---
+	e := echo.New()
 
-	mux.HandleFunc("/team/add", teamHandler.CreateOrUpdate)
-	mux.HandleFunc("/team/get", teamHandler.GetTeam)
-	mux.HandleFunc("/users/setIsActive", userHandler.SetActive)
-	mux.HandleFunc("/users/getReview", userHandler.GetReviews)
-	mux.HandleFunc("/pullRequest/create", prHandler.CreatePR)
-	mux.HandleFunc("/pullRequest/merge", prHandler.MergePR)
-	mux.HandleFunc("/pullRequest/reassign", prHandler.ReassignReviewer)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"status":"ok"}`))
+	// --- Middleware ---
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+
+	// --- Routes ---
+
+	// Team
+	e.POST("/team/add", teamHandler.CreateTeam)
+	e.GET("/team/get", teamHandler.GetTeam)
+
+	// User
+	e.POST("/users/setIsActive", userHandler.SetActive)
+	e.GET("/users/:id", userHandler.GetByID)
+
+	// Pull Requests
+	e.POST("/pullRequest/create", prHandler.CreatePR)
+	e.POST("/pullRequest/merge", prHandler.MergePR)
+	e.POST("/pullRequest/reassign", prHandler.ReassignReviewer)
+
+	// Healthcheck
+	e.GET("/health", func(c echo.Context) error {
+		return c.JSON(200, map[string]string{
+			"status": "ok",
+		})
 	})
 
-	log.Printf("Starting server on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	// --- Start server ---
+	log.Println("Starting server on port 8080...")
+	log.Fatal(e.Start(":8080"))
 }

@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"math/rand"
-	"pr-reviewer-service/internal/models"
-	"pr-reviewer-service/internal/repository/memory"
 	"time"
+
+	"pr-reviewer-service/internal/models"
+	"pr-reviewer-service/internal/repository"
 )
 
 var (
@@ -17,44 +19,58 @@ var (
 )
 
 type PRService struct {
-	prRepo   *memory.PRRepository
-	userRepo *memory.UserRepository
-	teamRepo *memory.TeamRepository
+	prRepo   repository.PullRequestRepository
+	userRepo repository.UserRepository
+	teamRepo repository.TeamRepository
 }
 
-func NewPRService(prRepo *memory.PRRepository, userRepo *memory.UserRepository, teamRepo *memory.TeamRepository) *PRService {
-	return &PRService{prRepo: prRepo, userRepo: userRepo, teamRepo: teamRepo}
+func NewPRService(
+	prRepo repository.PullRequestRepository,
+	userRepo repository.UserRepository,
+	teamRepo repository.TeamRepository,
+) *PRService {
+	return &PRService{
+		prRepo:   prRepo,
+		userRepo: userRepo,
+		teamRepo: teamRepo,
+	}
 }
 
-func (s *PRService) CreatePR(pr *models.PullRequest) error {
+func (s *PRService) CreatePR(
+	ctx context.Context,
+	pr *models.PullRequest,
+) error {
 
-	if _, exists := s.prRepo.Get(pr.PullRequestID); exists {
+	if _, err := s.prRepo.GetByID(ctx, pr.PullRequestID); err == nil {
 		return ErrPRExists
 	}
 
-	author, ok := s.userRepo.GetByID(pr.AuthorID)
-	if !ok {
+	author, err := s.userRepo.GetByID(ctx, pr.AuthorID)
+	if err != nil {
 		return ErrPRNotFound
 	}
 
-	team, ok := s.teamRepo.Get(author.TeamName)
-	if !ok {
+	team, err := s.teamRepo.GetByName(ctx, author.TeamName)
+	if err != nil {
 		return ErrPRNotFound
 	}
 
-	candidates := []string{}
+	var candidates []string
 	for _, m := range team.Members {
 		if m.UserID != author.UserID && m.IsActive {
 			candidates = append(candidates, m.UserID)
 		}
 	}
 
-	assigned := []string{}
+	if len(candidates) == 0 {
+		return ErrNoCandidate
+	}
+
 	rand.Seed(time.Now().UnixNano())
+	var assigned []string
 	for i := 0; i < 2 && len(candidates) > 0; i++ {
 		idx := rand.Intn(len(candidates))
 		assigned = append(assigned, candidates[idx])
-
 		candidates = append(candidates[:idx], candidates[idx+1:]...)
 	}
 
@@ -63,12 +79,20 @@ func (s *PRService) CreatePR(pr *models.PullRequest) error {
 	pr.CreatedAt = &now
 	pr.Status = models.PRStatusOpen
 
-	return s.prRepo.Create(pr)
+	if err := s.prRepo.Create(ctx, pr); err != nil {
+		return ErrPRExists
+	}
+
+	return nil
 }
 
-func (s *PRService) MergePR(prID string) (*models.PullRequest, error) {
-	pr, ok := s.prRepo.Get(prID)
-	if !ok {
+func (s *PRService) MergePR(
+	ctx context.Context,
+	prID string,
+) (*models.PullRequest, error) {
+
+	pr, err := s.prRepo.GetByID(ctx, prID)
+	if err != nil {
 		return nil, ErrPRNotFound
 	}
 
@@ -80,13 +104,21 @@ func (s *PRService) MergePR(prID string) (*models.PullRequest, error) {
 	pr.Status = models.PRStatusMerged
 	pr.MergedAt = &now
 
-	s.prRepo.Update(pr)
+	if err := s.prRepo.Update(ctx, pr); err != nil {
+		return nil, ErrPRNotFound
+	}
+
 	return pr, nil
 }
 
-func (s *PRService) ReassignReviewer(prID string, oldUserID string) (*models.PullRequest, string, error) {
-	pr, ok := s.prRepo.Get(prID)
-	if !ok {
+func (s *PRService) ReassignReviewer(
+	ctx context.Context,
+	prID string,
+	oldUserID string,
+) (*models.PullRequest, string, error) {
+
+	pr, err := s.prRepo.GetByID(ctx, prID)
+	if err != nil {
 		return nil, "", ErrPRNotFound
 	}
 
@@ -105,17 +137,17 @@ func (s *PRService) ReassignReviewer(prID string, oldUserID string) (*models.Pul
 		return nil, "", ErrReviewerNotAssigned
 	}
 
-	oldUser, ok := s.userRepo.GetByID(oldUserID)
-	if !ok {
+	oldUser, err := s.userRepo.GetByID(ctx, oldUserID)
+	if err != nil {
 		return nil, "", ErrPRNotFound
 	}
 
-	team, ok := s.teamRepo.Get(oldUser.TeamName)
-	if !ok {
+	team, err := s.teamRepo.GetByName(ctx, oldUser.TeamName)
+	if err != nil {
 		return nil, "", ErrNoCandidate
 	}
 
-	candidates := []string{}
+	var candidates []string
 	for _, m := range team.Members {
 		if m.UserID != oldUserID && m.IsActive {
 			candidates = append(candidates, m.UserID)
@@ -136,10 +168,9 @@ func (s *PRService) ReassignReviewer(prID string, oldUserID string) (*models.Pul
 		}
 	}
 
-	s.prRepo.Update(pr)
-	return pr, newUserID, nil
-}
+	if err := s.prRepo.Update(ctx, pr); err != nil {
+		return nil, "", ErrPRNotFound
+	}
 
-func (s *PRService) GetPRsForReviewer(userID string) []models.PullRequestShort {
-	return s.prRepo.GetWhereReviewerIs(userID)
+	return pr, newUserID, nil
 }

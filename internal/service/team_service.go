@@ -1,33 +1,35 @@
 package service
 
 import (
+	"context"
 	"errors"
+
 	"pr-reviewer-service/internal/models"
-	"pr-reviewer-service/internal/repository/memory"
+	"pr-reviewer-service/internal/repository"
 )
 
 var ErrTeamExists = errors.New("TEAM_EXISTS")
 var ErrTeamNotFound = errors.New("NOT_FOUND")
 
 type TeamService struct {
-	repo     *memory.TeamRepository
-	userRepo *memory.UserRepository
+	repo     repository.TeamRepository
+	userRepo repository.UserRepository
 }
 
-func NewTeamService(repo *memory.TeamRepository, userRepo *memory.UserRepository) *TeamService {
+func NewTeamService(
+	repo repository.TeamRepository,
+	userRepo repository.UserRepository,
+) *TeamService {
 	return &TeamService{repo: repo, userRepo: userRepo}
 }
 
-func (s *TeamService) CreateOrUpdate(team *models.Team) error {
-	_, exists := s.repo.Get(team.TeamName)
-	if exists {
-
-		s.repo.Update(team)
-	} else {
-		err := s.repo.Create(team)
-		if err != nil {
-			return ErrTeamExists
-		}
+func (s *TeamService) CreateTeam(
+	ctx context.Context,
+	team *models.Team,
+) error {
+	err := s.repo.Create(ctx, team)
+	if err != nil {
+		return ErrTeamExists
 	}
 
 	for _, member := range team.Members {
@@ -37,15 +39,18 @@ func (s *TeamService) CreateOrUpdate(team *models.Team) error {
 			TeamName: team.TeamName,
 			IsActive: member.IsActive,
 		}
-		s.userRepo.CreateOrUpdate(u)
+		_ = s.userRepo.Create(ctx, u)
 	}
 
 	return nil
 }
 
-func (s *TeamService) GetTeam(name string) (*models.Team, error) {
-	team, exists := s.repo.Get(name)
-	if !exists {
+func (s *TeamService) GetTeam(
+	ctx context.Context,
+	name string,
+) (*models.Team, error) {
+	team, err := s.repo.GetByName(ctx, name)
+	if err != nil {
 		return nil, ErrTeamNotFound
 	}
 	return team, nil

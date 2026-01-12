@@ -1,58 +1,131 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/labstack/echo"
+
 	"pr-reviewer-service/internal/models"
 	"pr-reviewer-service/internal/service"
 )
 
 type TeamHandler struct {
-	service *service.TeamService
+	teamService *service.TeamService
 }
 
-func NewTeamHandler(s *service.TeamService) *TeamHandler {
-	return &TeamHandler{service: s}
+func NewTeamHandler(teamService *service.TeamService) *TeamHandler {
+	return &TeamHandler{
+		teamService: teamService,
+	}
 }
 
-func (h *TeamHandler) CreateOrUpdate(w http.ResponseWriter, r *http.Request) {
-	var team models.Team
-	if err := json.NewDecoder(r.Body).Decode(&team); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+/*
+POST /team/add
+{
+  "team_name": "backend",
+  "members": [
+    {
+      "user_id": "u1",
+      "username": "alice",
+      "is_active": true
+    }
+  ]
+}
+*/
+type createTeamRequest struct {
+	TeamName string               `json:"team_name"`
+	Members  []models.TeamMember  `json:"members"`
+}
+
+func (h *TeamHandler) CreateTeam(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	var req createTeamRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "INVALID_REQUEST",
+				"message": "invalid request body",
+			},
+		})
 	}
 
-	if err := h.service.CreateOrUpdate(&team); err != nil {
-		if err.Error() == "TEAM_EXISTS" {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+	if req.TeamName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "VALIDATION_ERROR",
+				"message": "team_name is required",
+			},
+		})
+	}
+
+	team := &models.Team{
+		TeamName: req.TeamName,
+		Members:  req.Members,
+	}
+
+	err := h.teamService.CreateTeam(ctx, team)
+	if err != nil {
+		switch err {
+		case service.ErrTeamExists:
+			return c.JSON(http.StatusConflict, map[string]interface{}{
 				"error": map[string]string{
 					"code":    "TEAM_EXISTS",
-					"message": "team_name already exists",
+					"message": "team already exists",
 				},
 			})
-			return
+		default:
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "INTERNAL_ERROR",
+					"message": "could not create team",
+				},
+			})
 		}
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"team": team})
+	return c.JSON(http.StatusCreated, map[string]string{
+		"status": "ok",
+	})
 }
 
-func (h *TeamHandler) GetTeam(w http.ResponseWriter, r *http.Request) {
-	teamName := r.URL.Query().Get("team_name")
-	team, err := h.service.GetTeam(teamName)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+/*
+GET /team/get?name=backend
+*/
+func (h *TeamHandler) GetTeam(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	name := c.QueryParam("name")
+	if name == "" {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"error": map[string]string{
-				"code":    "NOT_FOUND",
-				"message": "team not found",
+				"code":    "VALIDATION_ERROR",
+				"message": "team name is required",
 			},
 		})
-		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(team)
+	team, err := h.teamService.GetTeam(ctx, name)
+	if err != nil {
+		switch err {
+		case service.ErrTeamNotFound:
+			return c.JSON(http.StatusNotFound, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "TEAM_NOT_FOUND",
+					"message": "team not found",
+				},
+			})
+		default:
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error": map[string]string{
+					"code":    "INTERNAL_ERROR",
+					"message": "could not get team",
+				},
+			})
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"team": team,
+	})
 }

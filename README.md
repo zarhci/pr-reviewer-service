@@ -18,7 +18,7 @@
 
 ## _стек_:
 
-- Go, Docker/Docker Compose, in-memory,порт 8080
+- Go, PostgreSQL, Docker / Docker Compose
 
 ---
 
@@ -41,11 +41,12 @@
 **Запуск docker-compose**
 `docker-up`
 
-Конфигурация реализована через переменные окружения в docker-compose.yml:
+Конфигурация через переменные окружения:
 
 ```yaml
 environment:
-  - PORT=8080
+  - PORT
+  - POSTGRES_DSN
 ```
 
 Порт можно изменить при необходимости, обновив значение в docker-compose.yml.
@@ -80,7 +81,7 @@ environment:
   ***
 
 - Информация о команде
-  GET `http://localhost:8080/team/get?team_name=backend`
+  GET `http://localhost:8080/team/get?name=backend`
 
 ---
 
